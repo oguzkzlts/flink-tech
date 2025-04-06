@@ -1,0 +1,91 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.0.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+
+  kafka:
+    image: confluentinc/cp-kafka:7.0.1
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"  # Ensure auto topic creation is disabled
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_NUM_PARTITIONS: 1
+    ports:
+      - "29092:29092"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server kafka:9092 --list || exit 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+
+  jobmanager:
+    image: flink:1.20.1
+    command: jobmanager
+    ports:
+      - "8081:8081"
+    environment:
+      JOB_MANAGER_RPC_ADDRESS: jobmanager
+
+  taskmanager:
+    image: flink:1.20.1
+    command: taskmanager
+    depends_on:
+      - jobmanager
+    environment:
+      JOB_MANAGER_RPC_ADDRESS: jobmanager
+      TASK_MANAGER_NUMBER_OF_TASK_SLOTS: "1"
+
+  # New Kafka Topic Creation Service
+  kafka-topic-creator:
+    image: confluentinc/cp-kafka:7.0.1
+    depends_on:
+      - kafka
+    entrypoint:
+      - sh
+      - -c
+      - |
+        echo "Waiting for Kafka to be ready..."
+        while ! ping -c 1 kafka > /dev/null 2>&1; do sleep 3; done
+        echo "Kafka is ready, creating topics..."
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic crypto-prices --replication-factor 1 --partitions 1
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic alerts --replication-factor 1 --partitions 1
+        
+        # Final verification
+        echo "Verifying topics..."
+        until kafka-topics --bootstrap-server kafka:9092 --list | grep -q 'crypto-prices' && \
+              kafka-topics --bootstrap-server kafka:9092 --list | grep -q 'alerts'; do
+          sleep 5
+        done
+        echo "Topics ready"
+
+  flink-job:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      kafka-topic-creator:
+        condition: service_completed_successfully
+      jobmanager:
+        condition: service_started
+      taskmanager:
+        condition: service_started
+    command:
+      - sh
+      - -c
+      - |
+        echo "All dependencies ready - starting Flink job..."
+        /opt/flink/bin/flink run \
+          -m jobmanager:8081 \
+          -c org.example.flink.KafkaStreamingJob \
+          /opt/flink/usrlib/FlinkTech-1.0-SNAPSHOT.jar
+        
+        # Keep container running to view logs
+        tail -f /dev/null
