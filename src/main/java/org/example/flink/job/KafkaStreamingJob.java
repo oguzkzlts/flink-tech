@@ -51,7 +51,7 @@ public class KafkaStreamingJob {
 
         // Socket stream
         DataStream<String> socketStream = env
-                .socketTextStream("localhost", 9999)
+                .socketTextStream("host.docker.internal", 9999)
                 .map(line -> "SOCKET:" + line);
 
         // Combine streams

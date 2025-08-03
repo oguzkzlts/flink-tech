@@ -9,8 +9,13 @@ services:
       ZOOKEEPER_CLIENT_PORT: 2181
     volumes:
       - zookeeper-data:/var/lib/zookeeper
+      - ./zoo.cfg:/etc/kafka/zookeeper.properties
+    command:
+      - sh
+      - -c
+      - "zookeeper-server-start /etc/kafka/zookeeper.properties"
     healthcheck:
-      test: ["CMD", "echo", "ruok", "|", "nc", "localhost", "2181"]
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -121,8 +126,10 @@ services:
         echo "Starting Flink job..."
         /opt/flink/bin/flink run \
           -m jobmanager:8081 \
-          -c org.example.flink.KafkaStreamingJob \
+          -c org.example.flink.job.KafkaStreamingJob \
           /opt/flink/usrlib/FlinkTech-1.0-SNAPSHOT.jar
         
         # Keep container running to view logs
         tail -f /dev/null
+    ports:
+      - "9999:9999"
