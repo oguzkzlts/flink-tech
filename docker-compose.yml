@@ -3,6 +3,18 @@ volumes:
   zookeeper-data:
 
 services:
+  schema-registry:
+    image: ghcr.io/aiven-open/karapace:latest
+    container_name: schema-registry
+    ports:
+      - "8081:8081"
+    environment:
+      KARAPACE_BOOTSTRAP_URI: kafka:9092
+      KARAPACE_HOST: 0.0.0.0
+      KARAPACE_PORT: 8081
+    depends_on:
+      - kafka
+
   zookeeper:
     image: confluentinc/cp-zookeeper:7.0.1
     environment:

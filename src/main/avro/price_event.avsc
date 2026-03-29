@@ -1,0 +1,11 @@
+{
+  "namespace": "com.oguzkzlts.flink.model",
+  "type": "record",
+  "name": "PriceEvent",
+  "fields": [
+    {"name": "symbol", "type": "string"},
+    {"name": "price", "type": "double"},
+    {"name": "timestamp", "type": "long"},
+    {"name": "source", "type": "string"}
+  ]
+}
