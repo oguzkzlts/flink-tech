@@ -85,11 +85,27 @@ The main Flink job that orchestrates the streaming pipeline:
 
 ## Building the Project
 
-mvn clean package
+    mvn clean package
 
 ## Running the Job
 
-flink run target/flink-tech-1.0-SNAPSHOT.jar
+The application is environment-aware and supports both Development (local/Docker) and Production (AWS/S3) modes via the --env flag.
+
+### Development Mode (Default)
+
+Optimized for local testing with console output and faster checkpointing.
+
+    flink run target/flink-tech-1.0-SNAPSHOT.jar --env dev
+
+### Production Mode
+
+Optimized for AWS Managed Flink or EMR. Enables RocksDB State Backend and S3 Checkpointing.
+Bash
+
+    flink run target/flink-tech-1.0-SNAPSHOT.jar \
+    --env prod \
+    --s3.path s3://your-bucket-name/flink/checkpoints/ \
+    --kafka.brokers your-msk-broker:9092
 
 ## Configuration
 
