@@ -1,30 +1,26 @@
 package org.example.flink.models;
 
-public class PriceEvent {
-    public String symbol;
-    public String source;
+import java.io.Serializable;
 
-    public double price;
+public class PriceEvent implements Serializable {
+    private String symbol;
+    private Double price;
+    private Long timestamp;
+    private String source;
 
     public PriceEvent() {}
 
-    public PriceEvent(String symbol, String source, double price) {
+    public PriceEvent(String symbol, Double price, Long timestamp, String source) {
         this.symbol = symbol;
-        this.source = source;
         this.price = price;
+        this.timestamp = timestamp;
+        this.source = source;
     }
 
-    public double getPrice() {
-        return price;
-    }
-
-    public String getSource() {
-        return source;
-    }
-
-    public String getSymbol() {
-        return symbol;
-    }
+    public String getSymbol() { return symbol; }
+    public Double getPrice() { return price; }
+    public Long getTimestamp() { return timestamp; }
+    public String getSource() { return source; }
 
     public String getCompositeKey() {
         return symbol + "|" + source;
@@ -32,7 +28,6 @@ public class PriceEvent {
 
     @Override
     public String toString() {
-        return String.format("SRC:%s | SYMBOL:%s | PRICE:%.2f", source, symbol, price);
+        return String.format("SRC:%s | SYMBOL:%s | PRICE:%.2f | TS:%d", source, symbol, price, timestamp);
     }
 }
-
