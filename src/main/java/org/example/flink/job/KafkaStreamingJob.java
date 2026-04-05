@@ -8,8 +8,6 @@ import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
 import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
-import org.apache.flink.contrib.streaming.state.EmbeddedRocksDBStateBackend;
-import org.apache.flink.streaming.api.CheckpointingMode; // Use the streaming API version
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.CheckpointConfig;
@@ -24,6 +22,9 @@ import org.example.flink.models.PriceEvent;
 import java.time.Duration;
 import java.util.Objects;
 
+import static org.apache.flink.streaming.api.CheckpointingMode.EXACTLY_ONCE;
+import static org.apache.flink.streaming.api.environment.CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION;
+
 public class KafkaStreamingJob {
     public static void main(String[] args) throws Exception {
         final ParameterTool params = ParameterTool.fromArgs(args);
@@ -31,30 +32,27 @@ public class KafkaStreamingJob {
 
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-        // --- 1. ENVIRONMENT CONFIGURATION ---
         if ("prod".equalsIgnoreCase(envType)) {
-            // Enable Checkpointing (1 minute)
             env.enableCheckpointing(60000);
 
             CheckpointConfig config = env.getCheckpointConfig();
 
-            config.setCheckpointingMode(CheckpointingMode.EXACTLY_ONCE);
+            config.setCheckpointingMode(EXACTLY_ONCE);
 
-            config.setExternalizedCheckpointCleanup(
-                    CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
+            config.setExternalizedCheckpointCleanup(RETAIN_ON_CANCELLATION);
 
+            // State Backend
+            env.setStateBackend(new org.apache.flink.contrib.streaming.state.EmbeddedRocksDBStateBackend(true));
+
+            // Use a URI to resolve the 'setCheckpointStorage(String)' deprecation
             String s3Path = params.getRequired("s3.path");
-            env.setStateBackend(new EmbeddedRocksDBStateBackend(true));
-
-            // Use the explicit storage setter
-            config.setCheckpointStorage(s3Path);
+            config.setCheckpointStorage(java.net.URI.create(s3Path));
 
             System.out.println("MODE: PRODUCTION | S3: " + s3Path);
         } else {
             System.out.println("MODE: DEVELOPMENT");
         }
 
-        // --- 2. STREAM SETUP ---
         final OutputTag<String> alertOutput = new OutputTag<>("alert"){};
         final OutputTag<String> normalOutput = new OutputTag<>("normal"){};
 
@@ -84,7 +82,6 @@ public class KafkaStreamingJob {
                 .filter(Objects::nonNull)
                 .assignTimestampsAndWatermarks(watermarkStrategy);
 
-        // --- 3. BUSINESS LOGIC ---
         SingleOutputStreamOperator<String> aggregated = parsedStream
                 .keyBy(PriceEvent::getCompositeKey)
                 .window(TumblingEventTimeWindows.of(Duration.ofSeconds(10)))
@@ -92,7 +89,6 @@ public class KafkaStreamingJob {
 
         SingleOutputStreamOperator<String> routed = aggregated.process(new AlertRouter(alertOutput, normalOutput));
 
-        // --- 4. CONDITIONAL SINKS ---
         if ("prod".equalsIgnoreCase(envType)) {
             KafkaSink<String> kafkaSink = KafkaSink.<String>builder()
                     .setBootstrapServers(params.get("kafka.brokers", "kafka:9092"))
