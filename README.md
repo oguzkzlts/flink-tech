@@ -1,167 +1,345 @@
-# Flink FinTech Stream Processing Project
+# FlinkTech - Production-Grade Real-Time Crypto Price Processing
 
-## **Overview**
+A production-ready Apache Flink application for real-time cryptocurrency price stream processing with advanced analytics, anomaly detection, and comprehensive monitoring.
 
-This project is a real-time financial technology (FinTech) stream processing application built with Apache Flink. It processes cryptocurrency price data from multiple sources, performs aggregations, detects alert conditions, and routes alerts to a Kafka topic for further action.
- 
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           DATA INGESTION LAYER                                   │
+│                                                                                    │
+│  ┌──────────────────────┐              ┌──────────────────────┐                  │
+│  │   Kafka Source        │              │   Socket Source       │                  │
+│  │   (crypto-prices)     │              │   (port 9999)         │                  │
+│  └──────────┬───────────┘              └──────────┬───────────┘                  │
+│             └──────────────────┬──────────────────┘                               │
+└────────────────────────────────┼──────────────────────────────────────────────────┘
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                         PROCESSING LAYER                                         │
+│                                                                                    │
+│  ┌──────────────────────────────────────────────────────────────────────────┐   │
+│  │  EnhancedParseFunction                                                    │   │
+│  │  - Schema validation                                                      │   │
+│  │  - Data quality checks                                                    │   │
+│  │  - Event ID generation                                                    │   │
+│  │  - Metrics collection                                                     │   │
+│  └──────────────────────────────────┬───────────────────────────────────────┘   │
+│                                     ▼                                            │
+│  ┌──────────────────────────────────────────────────────────────────────────┐   │
+│  │  Watermark Strategy (5s out-of-order)                                     │   │
+│  └──────────────────────────────────┬───────────────────────────────────────┘   │
+│                                     ▼                                            │
+│  ┌──────────────────────────────┐  ┌──────────────────────────────────────┐   │
+│  │  Tumbling Window (10s)        │  │  Sliding Window (1m / 10s slide)    │   │
+│  │  - Avg, Min, Max, StdDev     │  │  - Moving averages                    │   │
+│  │  - Volume aggregation         │  │  - Trend detection                   │   │
+│  │  - Anomaly detection          │  │  - Volatility analysis               │   │
+│  └──────────────┬───────────────┘  └──────────────┬───────────────────────┘   │
+│                 └──────────────────┬───────────────┘                           │
+└────────────────────────────────────┼───────────────────────────────────────────┘
+                                     ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                          ROUTING LAYER                                           │
+│                                                                                    │
+│  ┌──────────────────────────────────────────────────────────────────────────┐   │
+│  │  EnhancedAlertRouter                                                      │   │
+│  │  - CRITICAL: Price exceeds threshold                                      │   │
+│  │  - WARNING: Price approaching threshold                                   │   │
+│  │  - ANOMALY: High volatility detected                                      │   │
+│  │  - NORMAL: Within parameters                                              │   │
+│  └──────────┬──────────────┬──────────────┬────────────────────────────────┘   │
+│             ▼              ▼              ▼                                     │
+└─────────────────────────────────────────────────────────────────────────────────┘
+             │              │              │
+             ▼              ▼              ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                            SINK LAYER                                            │
+│                                                                                    │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐  │
+│  │ Alert Topic   │    │ Anomaly Topic│    │ Console Output│   │ Dead Letters │  │
+│  │ (Kafka)       │    │ (Kafka)      │    │ (All levels)  │   │ (Kafka)      │  │
+│  └──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                        MONITORING STACK                                          │
+│                                                                                    │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐                       │
+│  │ Prometheus    │◄───│ Flink Metrics│    │ Grafana      │                       │
+│  │ (Metrics DB)  │    │ (JMX)        │    │ (Dashboards) │                       │
+│  └──────────────┘    └──────────────┘    └──────────────┘                       │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
 ## Features
 
-    Multi-source ingestion: Consumes data from both Kafka and socket streams
+### Core Processing
+- **Multi-source ingestion**: Kafka + Socket streams with union
+- **Event-time processing**: Watermarks with configurable out-of-order tolerance
+- **Multi-window aggregations**: Tumbling and sliding windows
+- **Statistical analysis**: Mean, min, max, standard deviation, volume
+- **Anomaly detection**: Statistical methods using standard deviation thresholds
+- **Dynamic thresholds**: Live price thresholds from CoinGecko API
 
-    Real-time processing: Processes and aggregates cryptocurrency price events
+### Production Features
+- **Dead Letter Queue**: Failed events routed to DLQ topic for reprocessing
+- **Checkpointing**: RocksDB state backend with S3 storage
+- **Exactly-once semantics**: For state and Kafka output
+- **Metrics collection**: Custom Flink metrics for monitoring
+- **Structured logging**: SLF4J with Log4j2 implementation
+- **Configuration management**: Environment-specific configs (dev/staging/prod)
+- **Graceful shutdown**: Proper resource cleanup
 
-    Alert detection: Identifies price events that exceed configurable thresholds
+### Monitoring & Observability
+- **Prometheus**: Metrics collection and storage
+- **Grafana**: Pre-configured dashboards
+- **JMX exposure**: Flink metrics via JMX
+- **Health checks**: Docker health checks for all services
 
-    Side output routing: Separates alert events from normal events
+## Quick Start
 
-    Kafka integration: Reads from and writes to Kafka topics with delivery guarantees
+### Prerequisites
+- Docker & Docker Compose
+- Java 11+ (for local development)
+- Maven 3.6+
 
-## Architecture
+### Running with Docker Compose
 
-The Flink streaming pipeline processes cryptocurrency price data through these stages:
+```bash
+# Start all services
+docker-compose up -d
 
-    Data Ingestion: Reads from two sources simultaneously - a Kafka topic (crypto-prices) and a socket stream (port 9999)
+# View logs
+docker-compose logs -f flink-job
 
-    Parsing & Filtering: Converts raw messages into structured PriceEvent objects and filters invalid data
+# Access interfaces
+# Flink Dashboard: http://localhost:8081
+# Grafana: http://localhost:3000 (admin/admin)
+# Prometheus: http://localhost:9090
+```
 
-    Windowed Aggregation: Groups data by cryptocurrency symbol and performs aggregations over configurable time windows
+### Running Locally
 
-    Alert Routing: Separates processed events into two streams - alerts that exceed thresholds and normal events
+```bash
+# Build the project
+mvn clean package -DskipTests
 
-    Output: Sends alerts to a Kafka topic for further processing while printing normal events to console for monitoring
+# Run in development mode
+java -jar target/FlinkTech-1.0-SNAPSHOT.jar --env dev
 
-The architecture remains consistent regardless of window size configuration, with data flowing sequentially through these processing stages.
- 
-## Components
- 
-### **Main Job (KafkaStreamingJob)**
+# Run in production mode
+java -jar target/FlinkTech-1.0-SNAPSHOT.jar \
+  --env prod \
+  --kafka.brokers localhost:9092 \
+  --s3.path s3://your-bucket/flink/checkpoints/
+```
 
-The main Flink job that orchestrates the streaming pipeline:
+### Running Tests
 
-    Data Ingestion:
+```bash
+# Run all tests
+mvn test
 
-        Kafka source from crypto-prices topic
-
-        Socket stream from host.docker.internal:9999
-
-    Data Processing:
-
-        Parsing and validation of price events
-
-        10-second tumbling window aggregations
-
-        Threshold-based alert detection
-
-    Data Output:
-
-        Alerts published to Kafka alerts topic
-
-        Normal events printed to stdout for debugging
-
-### Key Classes
-
-    PriceEvent: Data model for cryptocurrency price events
-
-    ParseFunction: Parses raw string data into PriceEvent objects
-
-    AggregationFunction: Computes windowed aggregations
-
-    AlertRouter: Routes events to appropriate side outputs based on thresholds
-
-    ThresholdUtil: Utility for managing alert thresholds
-
-### Setup and Execution
-
-## Prerequisites
-
-
-    Java 11+
-
-    Apache Flink
-
-    Apache Kafka
-
-    Docker (for containerized deployment)
-
-## Building the Project
-
-    mvn clean package
-
-## Running the Job
-
-The application is environment-aware and supports both Development (local/Docker) and Production (AWS/S3) modes via the --env flag.
-
-### Development Mode (Default)
-
-Optimized for local testing with console output and faster checkpointing.
-
-    flink run target/flink-tech-1.0-SNAPSHOT.jar --env dev
-
-### Production Mode
-
-Optimized for AWS Managed Flink or EMR. Enables RocksDB State Backend and S3 Checkpointing.
-Bash
-
-    flink run target/flink-tech-1.0-SNAPSHOT.jar \
-    --env prod \
-    --s3.path s3://your-bucket-name/flink/checkpoints/ \
-    --kafka.brokers your-msk-broker:9092
+# Run specific test class
+mvn test -Dtest=EnhancedParseFunctionTest
+```
 
 ## Configuration
 
-### Kafka Settings
+### Command Line Arguments
 
-    Bootstrap server: kafka:9092
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--env` | Environment (dev/staging/prod) | dev |
+| `--kafka.brokers` | Kafka bootstrap servers | kafka:9092 |
+| `--input.topic` | Input topic name | crypto-prices |
+| `--alert.topic` | Alert topic name | alerts |
+| `--dlq.topic` | Dead letter topic name | dead-letters |
+| `--socket.host` | Socket source host | host.docker.internal |
+| `--socket.port` | Socket source port | 9999 |
+| `--tumbling.window.seconds` | Tumbling window size | 10 |
+| `--sliding.window.seconds` | Sliding window size | 60 |
+| `--sliding.slide.seconds` | Sliding window slide | 10 |
+| `--watermark.delay.seconds` | Watermark delay | 5 |
+| `--alert.threshold.percent` | Alert threshold % | 5.0 |
+| `--anomaly.stddev.multiplier` | Anomaly stddev multiplier | 2.0 |
+| `--s3.path` | S3 checkpoint storage path | - |
+| `--checkpoint.interval.seconds` | Checkpoint interval | 60 |
+| `--max.retry.attempts` | Max retry attempts | 3 |
 
-    Input topic: crypto-prices
+### Environment Profiles
 
-    Output topic: alerts
+#### Development
+- No checkpointing
+- Console output only
+- Single parallelism
 
-    Consumer group: flink-group
+#### Staging
+- Checkpointing enabled (2min interval)
+- S3 checkpoint storage
+- Kafka sinks enabled
 
-### Processing Settings
+#### Production
+- Checkpointing enabled (5min interval)
+- S3 checkpoint storage with retention
+- Kafka sinks with exactly-once
+- Max retry attempts: 5
 
-    Window size: 10 seconds
+## Kafka Topics
 
-    Processing time based windows
+| Topic | Partitions | Description |
+|-------|-----------|-------------|
+| `crypto-prices` | 3 | Input price events |
+| `alerts` | 3 | Critical and warning alerts |
+| `anomalies` | 3 | Statistical anomalies |
+| `dead-letters` | 1 | Failed events |
+| `aggregated-prices` | 3 | Aggregated results |
 
-    Delivery guarantee: AT_LEAST_ONCE
+## Data Formats
 
-### Input Data Format
+### Input Format
+```
+SOURCE:SYMBOL,PRICE[,TIMESTAMP[,VOLUME]]
+```
 
-The application expects data in the format: SYMBOL,PRICE (e.g., BTC,55000)
-Outputs
+Examples:
+```
+KAFKA:BTC,65000.50,1672531200000,10000.0
+SOCKET:ETH,3500.25
+```
 
-    Alert events: Written to Kafka alerts topic and printed with "ALERT" prefix
+### Aggregated Output
+```json
+{
+  "symbol": "BTC",
+  "source": "KAFKA",
+  "avgPrice": 65100.50,
+  "minPrice": 64900.00,
+  "maxPrice": 65300.00,
+  "stdDev": 150.25,
+  "count": 100,
+  "totalVolume": 1000000.0,
+  "windowStart": 1672531200000,
+  "windowEnd": 1672531210000,
+  "alertLevel": "NORMAL",
+  "alertReason": "Within normal parameters"
+}
+```
 
-    Normal events: Printed with "NORMAL" prefix for debugging
+## Metrics
 
-### Monitoring and Debugging
+### Custom Metrics
+- `parse.success`: Successfully parsed events
+- `parse.failure`: Failed parse attempts
+- `windows.processed`: Processed windows
+- `alerts.generated`: Generated alerts
+- `anomalies.detected`: Detected anomalies
+- `dead.letters.created`: Dead letter events
+- `price.distribution`: Price histogram
+- `events.per.second`: Event throughput
 
-The application provides real-time debugging output:
+## Monitoring
 
-    All alert conditions are printed to stdout with "ALERT" prefix
+### Grafana Dashboards
+Access at http://localhost:3000
 
-    Normal processing results are printed with "NORMAL" prefix
+Default credentials: admin/admin
 
-    Source identification prefixes ("KAFKA:" or "SOCKET:") help trace data origin
+Pre-configured dashboards:
+- Flink Job Overview
+- Kafka Metrics
+- Custom Application Metrics
 
-## Extending the Project
+### Prometheus Queries
+```promql
+# Event throughput
+rate(flink_taskmanager_job_task_operator_events_per_second[1m])
 
-### To customize the application:
+# Alert rate
+rate(flink_taskmanager_job_task_operator_alerts_generated_total[5m])
 
-    Modify threshold values in ThresholdUtil
+# Parse success rate
+rate(flink_taskmanager_job_task_operator_parse_success_total[1m]) / 
+(rate(flink_taskmanager_job_task_operator_parse_success_total[1m]) + 
+ rate(flink_taskmanager_job_task_operator_parse_failure_total[1m]))
+```
 
-    Adjust window size in TumblingProcessingTimeWindows.of()
+## Development
 
-    Add new data sources to the merged stream
+### Project Structure
+```
+src/
+├── main/
+│   ├── java/org/example/flink/
+│   │   ├── config/           # Configuration classes
+│   │   ├── functions/        # Flink functions (parse, aggregate, route)
+│   │   ├── job/              # Main job orchestration
+│   │   ├── models/           # Data models
+│   │   └── utils/            # Utility classes
+│   ├── avro/                 # Avro schemas
+│   └── resources/            # Configuration files
+└── test/
+    └── java/org/example/flink/
+        ├── config/           # Config tests
+        ├── functions/        # Function tests
+        ├── models/           # Model tests
+        └── generators/       # Test data generators
+```
 
-    Implement additional processing logic in the appropriate functions
+### Adding New Features
 
-### Dependencies
+1. **New aggregation metric**: Update `EnhancedAggregationFunction`
+2. **New alert type**: Add to `AggregatedResult.AlertLevel` enum
+3. **New data source**: Add to `ProductionKafkaStreamingJob`
+4. **New sink**: Add to `configureSinks` method
 
-    Apache Flink Streaming Java
+## Production Deployment
 
-    Apache Flink Connectors (Kafka)
+### AWS MSK + S3
 
-    Custom utility functions and models
+```bash
+flink run \
+  -m yarn-cluster \
+  -c org.example.flink.job.ProductionKafkaStreamingJob \
+  target/FlinkTech-1.0-SNAPSHOT.jar \
+  --env prod \
+  --kafka.brokers your-msk-endpoint:9092 \
+  --s3.path s3://your-bucket/flink/checkpoints/
+```
+
+### Kubernetes
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flink-job
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flink-job
+  template:
+    spec:
+      containers:
+      - name: flink-job
+        image: your-registry/flink-tech:latest
+        command: ["/opt/flink/bin/flink", "run"]
+        args:
+          - "-m"
+          - "jobmanager:8081"
+          - "-c"
+          - "org.example.flink.job.ProductionKafkaStreamingJob"
+          - "/opt/flink/usrlib/FlinkTech-1.0-SNAPSHOT.jar"
+          - "--env"
+          - "prod"
+```
+
+## Author
+
+Oguzhan Kizltas
+
+## License
+
+MIT
