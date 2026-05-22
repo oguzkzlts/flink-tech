@@ -25,6 +25,7 @@ import java.util.Objects;
 import static org.apache.flink.streaming.api.CheckpointingMode.EXACTLY_ONCE;
 import static org.apache.flink.streaming.api.environment.CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION;
 
+@SuppressWarnings("deprecation")
 public class KafkaStreamingJob {
     public static void main(String[] args) throws Exception {
         final ParameterTool params = ParameterTool.fromArgs(args);
@@ -55,6 +56,7 @@ public class KafkaStreamingJob {
 
         final OutputTag<String> alertOutput = new OutputTag<>("alert"){};
         final OutputTag<String> normalOutput = new OutputTag<>("normal"){};
+        final OutputTag<String> deadLetterOutput = new OutputTag<>("dead-letter"){};
 
         WatermarkStrategy<PriceEvent> watermarkStrategy = WatermarkStrategy
                 .<PriceEvent>forBoundedOutOfOrderness(Duration.ofSeconds(5))
@@ -78,7 +80,7 @@ public class KafkaStreamingJob {
 
         SingleOutputStreamOperator<PriceEvent> parsedStream = kafkaStream.union(socketStream)
                 .filter(line -> line.contains(","))
-                .map(new ParseFunction())
+                .map(new ParseFunction(deadLetterOutput))
                 .filter(Objects::nonNull)
                 .assignTimestampsAndWatermarks(watermarkStrategy);
 
@@ -90,7 +92,7 @@ public class KafkaStreamingJob {
         SingleOutputStreamOperator<String> routed = aggregated.process(new AlertRouter(alertOutput, normalOutput));
 
         if ("prod".equalsIgnoreCase(envType)) {
-            KafkaSink<String> kafkaSink = KafkaSink.<String>builder()
+            KafkaSink<String> alertKafkaSink = KafkaSink.<String>builder()
                     .setBootstrapServers(params.get("kafka.brokers", "kafka:9092"))
                     .setRecordSerializer(KafkaRecordSerializationSchema.builder()
                             .setTopic("alerts")
@@ -99,11 +101,23 @@ public class KafkaStreamingJob {
                     .setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)
                     .build();
 
-            routed.getSideOutput(alertOutput).sinkTo(kafkaSink);
+            routed.getSideOutput(alertOutput).sinkTo(alertKafkaSink);
+
+            KafkaSink<String> deadLetterKafkaSink = KafkaSink.<String>builder()
+                    .setBootstrapServers(params.get("kafka.brokers", "kafka:9092"))
+                    .setRecordSerializer(KafkaRecordSerializationSchema.builder()
+                            .setTopic(params.get("dlq.topic", "dead-letters"))
+                            .setValueSerializationSchema(new SimpleStringSchema())
+                            .build())
+                    .setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)
+                    .build();
+
+            parsedStream.getSideOutput(deadLetterOutput).sinkTo(deadLetterKafkaSink);
         }
 
         routed.getSideOutput(alertOutput).print("ALERT");
         routed.getSideOutput(normalOutput).print("NORMAL");
+        parsedStream.getSideOutput(deadLetterOutput).print("DEAD-LETTER");
 
         env.execute("Flink-Fintech-Processor-" + envType.toUpperCase());
     }
