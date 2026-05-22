@@ -2,7 +2,6 @@ package org.example.flink.job;
 
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
-import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.connector.base.DeliveryGuarantee;
 import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
 import org.apache.flink.connector.kafka.sink.KafkaSink;
@@ -10,7 +9,6 @@ import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
-import org.apache.flink.streaming.api.environment.CheckpointConfig;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.windowing.assigners.SlidingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
@@ -24,12 +22,6 @@ import org.example.flink.models.AggregatedResult;
 import org.example.flink.models.PriceEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.HashMap;
-import java.util.Map;
-
-import static org.apache.flink.streaming.api.CheckpointingMode.EXACTLY_ONCE;
-import static org.apache.flink.streaming.api.environment.CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION;
 
 public class ProductionKafkaStreamingJob {
     private static final Logger LOG = LoggerFactory.getLogger(ProductionKafkaStreamingJob.class);
@@ -103,13 +95,15 @@ public class ProductionKafkaStreamingJob {
         env.execute("FlinkTech-Production-" + config.getEnvironment().toUpperCase());
     }
 
+    @SuppressWarnings("deprecation")
     private static void configureEnvironment(StreamExecutionEnvironment env, FlinkJobConfig config) {
         if (config.isEnableCheckpointing()) {
             env.enableCheckpointing(config.getCheckpointInterval().toMillis());
 
-            CheckpointConfig checkpointConfig = env.getCheckpointConfig();
-            checkpointConfig.setCheckpointingMode(EXACTLY_ONCE);
-            checkpointConfig.setExternalizedCheckpointCleanup(RETAIN_ON_CANCELLATION);
+            var checkpointConfig = env.getCheckpointConfig();
+            checkpointConfig.setCheckpointingMode(org.apache.flink.streaming.api.CheckpointingMode.EXACTLY_ONCE);
+            checkpointConfig.setExternalizedCheckpointCleanup(
+                    org.apache.flink.streaming.api.environment.CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
             checkpointConfig.setMinPauseBetweenCheckpoints(1000);
             checkpointConfig.setMaxConcurrentCheckpoints(1);
             checkpointConfig.setCheckpointTimeout(60000);
@@ -127,11 +121,21 @@ public class ProductionKafkaStreamingJob {
             LOG.info("Running in development mode without checkpointing");
         }
 
+        // Initialize Prometheus metrics if enabled
+        if (config.isEnableMetrics()) {
+            try {
+                org.apache.flink.metrics.prometheus.PrometheusMetricReporter prometheusReporter = 
+                        new org.apache.flink.metrics.prometheus.PrometheusMetricReporter();
+                org.apache.flink.configuration.Configuration prometheusConfig = new org.apache.flink.configuration.Configuration();
+                prometheusConfig.setString("port", "9249"); // Default Prometheus port
+                prometheusReporter.open(prometheusConfig);
+                LOG.info("Prometheus metrics reporter initialized on port 9249");
+            } catch (Exception e) {
+                LOG.warn("Failed to initialize Prometheus metrics reporter: {}", e.getMessage(), e);
+            }
+        }
+
         env.setParallelism(1);
-        
-        Map<String, String> globalParams = new HashMap<>();
-        globalParams.put("job.config", config.toString());
-        env.getConfig().setGlobalJobParameters(ParameterTool.fromMap(globalParams));
     }
 
     private static void configureSinks(FlinkJobConfig config,
@@ -147,7 +151,7 @@ public class ProductionKafkaStreamingJob {
                             .setTopic(config.getAlertTopic())
                             .setValueSerializationSchema(new SimpleStringSchema())
                             .build())
-                    .setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)
+                    .setDeliveryGuarantee(DeliveryGuarantee.EXACTLY_ONCE)
                     .build();
 
             mainStream.getSideOutput(alertOutput)
@@ -157,17 +161,17 @@ public class ProductionKafkaStreamingJob {
             KafkaSink<String> anomalyKafkaSink = KafkaSink.<String>builder()
                     .setBootstrapServers(config.getKafkaBootstrapServers())
                     .setRecordSerializer(KafkaRecordSerializationSchema.builder()
-                            .setTopic("anomalies")
+                            .setTopic(config.getAnomalyTopic())
                             .setValueSerializationSchema(new SimpleStringSchema())
                             .build())
-                    .setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)
+                    .setDeliveryGuarantee(DeliveryGuarantee.EXACTLY_ONCE)
                     .build();
 
             mainStream.getSideOutput(anomalyOutput)
                     .map(AggregatedResult::toString)
                     .sinkTo(anomalyKafkaSink);
 
-            LOG.info("Production sinks configured: alerts -> {}, anomalies -> anomalies", config.getAlertTopic());
+            LOG.info("Production sinks configured: alerts -> {}, anomalies -> {}", config.getAlertTopic(), config.getAnomalyTopic());
         }
 
         mainStream.getSideOutput(alertOutput)

@@ -15,6 +15,7 @@ public class FlinkJobConfigBuilder {
         config.setKafkaBootstrapServers(params.get("kafka.brokers", "kafka:9092"));
         config.setInputTopic(params.get("input.topic", "crypto-prices"));
         config.setAlertTopic(params.get("alert.topic", "alerts"));
+        config.setAnomalyTopic(params.get("anomaly.topic", "anomalies"));
         config.setDeadLetterTopic(params.get("dlq.topic", "dead-letters"));
         config.setAggregatedTopic(params.get("aggregated.topic", "aggregated-prices"));
         config.setMetricsTopic(params.get("metrics.topic", "flink-metrics"));

@@ -10,6 +10,7 @@ public class FlinkJobConfig implements Serializable {
     private String inputTopic;
     private String alertTopic;
     private String deadLetterTopic;
+    private String anomalyTopic;
     private String aggregatedTopic;
     private String metricsTopic;
     private String socketHost;
@@ -69,6 +70,9 @@ public class FlinkJobConfig implements Serializable {
     
     public String getDeadLetterTopic() { return deadLetterTopic; }
     public void setDeadLetterTopic(String deadLetterTopic) { this.deadLetterTopic = deadLetterTopic; }
+    
+    public String getAnomalyTopic() { return anomalyTopic; }
+    public void setAnomalyTopic(String anomalyTopic) { this.anomalyTopic = anomalyTopic; }
     
     public String getAggregatedTopic() { return aggregatedTopic; }
     public void setAggregatedTopic(String aggregatedTopic) { this.aggregatedTopic = aggregatedTopic; }

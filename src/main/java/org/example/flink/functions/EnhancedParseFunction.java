@@ -3,13 +3,9 @@ package org.example.flink.functions;
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.metrics.Counter;
-import org.example.flink.config.FlinkJobConfig;
-import org.example.flink.models.DeadLetterEvent;
 import org.example.flink.models.PriceEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.UUID;
 
 public class EnhancedParseFunction extends RichMapFunction<String, PriceEvent> {
     private static final long serialVersionUID = 1L;
@@ -17,26 +13,32 @@ public class EnhancedParseFunction extends RichMapFunction<String, PriceEvent> {
 
     private transient Counter parseSuccessCounter;
     private transient Counter parseFailureCounter;
-    private transient FlinkJobConfig config;
+    private transient Counter emptyLineCounter;
+    private transient Counter invalidFormatCounter;
+    private transient Counter negativePriceCounter;
+    private transient Counter numberFormatErrorCounter;
+    private transient Counter unexpectedErrorCounter;
+    private transient Meter parseLatencyMeter;
 
     @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
         parseSuccessCounter = getRuntimeContext().getMetricGroup().counter("parse.success");
         parseFailureCounter = getRuntimeContext().getMetricGroup().counter("parse.failure");
-        
-        Object configObj = getRuntimeContext().getExecutionConfig().getGlobalJobParameters().toMap().get("job.config");
-        if (configObj instanceof FlinkJobConfig) {
-            this.config = (FlinkJobConfig) configObj;
-        } else {
-            this.config = new FlinkJobConfig();
-        }
+        emptyLineCounter = getRuntimeContext().getMetricGroup().counter("parse.empty.line");
+        invalidFormatCounter = getRuntimeContext().getMetricGroup().counter("parse.invalid.format");
+        negativePriceCounter = getRuntimeContext().getMetricGroup().counter("parse.negative.price");
+        numberFormatErrorCounter = getRuntimeContext().getMetricGroup().counter("parse.number.format.error");
+        unexpectedErrorCounter = getRuntimeContext().getMetricGroup().counter("parse.unexpected.error");
+        parseLatencyMeter = getRuntimeContext().getMetricGroup().meter("parse.latency");
     }
 
     @Override
     public PriceEvent map(String line) throws Exception {
+        long startTime = System.nanoTime();
+        
         if (line == null || line.trim().isEmpty()) {
-            if (parseFailureCounter != null) parseFailureCounter.inc();
+            if (emptyLineCounter != null) emptyLineCounter.inc();
             LOG.warn("Received empty or null line");
             return null;
         }
@@ -44,7 +46,7 @@ public class EnhancedParseFunction extends RichMapFunction<String, PriceEvent> {
         try {
             String[] parts = line.split(":", 2);
             if (parts.length < 2) {
-                if (parseFailureCounter != null) parseFailureCounter.inc();
+                if (invalidFormatCounter != null) invalidFormatCounter.inc();
                 LOG.warn("Invalid format, missing source prefix: {}", line);
                 return null;
             }
@@ -53,27 +55,23 @@ public class EnhancedParseFunction extends RichMapFunction<String, PriceEvent> {
             String[] values = parts[1].split(",");
             
             if (values.length < 2) {
-                if (parseFailureCounter != null) parseFailureCounter.inc();
+                if (invalidFormatCounter != null) invalidFormatCounter.inc();
                 LOG.warn("Invalid format, missing price: {}", line);
                 return null;
             }
 
             String symbol = values[0].trim().toUpperCase();
             if (symbol.isEmpty()) {
-                if (parseFailureCounter != null) parseFailureCounter.inc();
+                if (invalidFormatCounter != null) invalidFormatCounter.inc();
                 LOG.warn("Empty symbol: {}", line);
                 return null;
             }
 
             double price = Double.parseDouble(values[1].trim());
             if (price < 0) {
-                if (parseFailureCounter != null) parseFailureCounter.inc();
+                if (negativePriceCounter != null) negativePriceCounter.inc();
                 LOG.warn("Negative price detected: {} for {}", price, symbol);
                 return null;
-            }
-
-            if (config != null && (price < config.getMinPriceThreshold() || price > config.getMaxPriceThreshold())) {
-                LOG.warn("Price outside reasonable range: {} for {}", price, symbol);
             }
 
             long timestamp = (values.length > 2) 
@@ -96,14 +94,18 @@ public class EnhancedParseFunction extends RichMapFunction<String, PriceEvent> {
 
             if (parseSuccessCounter != null) parseSuccessCounter.inc();
             LOG.debug("Successfully parsed: {}", event);
+            
+            long latency = System.nanoTime() - startTime;
+            if (parseLatencyMeter != null) parseLatencyMeter.inc(latency / 1000000.0); // Convert to milliseconds
+            
             return event;
 
         } catch (NumberFormatException e) {
-            if (parseFailureCounter != null) parseFailureCounter.inc();
+            if (numberFormatErrorCounter != null) numberFormatErrorCounter.inc();
             LOG.error("Number format error parsing: {} - {}", line, e.getMessage());
             return null;
         } catch (Exception e) {
-            if (parseFailureCounter != null) parseFailureCounter.inc();
+            if (unexpectedErrorCounter != null) unexpectedErrorCounter.inc();
             LOG.error("Unexpected error parsing: {} - {}", line, e.getMessage(), e);
             return null;
         }
