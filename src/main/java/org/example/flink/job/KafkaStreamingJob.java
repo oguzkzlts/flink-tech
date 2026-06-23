@@ -80,7 +80,7 @@ public class KafkaStreamingJob {
 
         SingleOutputStreamOperator<PriceEvent> parsedStream = kafkaStream.union(socketStream)
                 .filter(line -> line.contains(","))
-                .map(new ParseFunction(deadLetterOutput))
+                .process(new ParseFunction(deadLetterOutput))
                 .filter(Objects::nonNull)
                 .assignTimestampsAndWatermarks(watermarkStrategy);
 

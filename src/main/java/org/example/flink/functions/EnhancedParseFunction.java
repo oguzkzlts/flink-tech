@@ -3,6 +3,8 @@ package org.example.flink.functions;
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.metrics.Counter;
+import org.apache.flink.metrics.Meter;
+import org.apache.flink.metrics.MeterView;
 import org.example.flink.models.PriceEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,7 +32,7 @@ public class EnhancedParseFunction extends RichMapFunction<String, PriceEvent> {
         negativePriceCounter = getRuntimeContext().getMetricGroup().counter("parse.negative.price");
         numberFormatErrorCounter = getRuntimeContext().getMetricGroup().counter("parse.number.format.error");
         unexpectedErrorCounter = getRuntimeContext().getMetricGroup().counter("parse.unexpected.error");
-        parseLatencyMeter = getRuntimeContext().getMetricGroup().meter("parse.latency");
+        parseLatencyMeter = getRuntimeContext().getMetricGroup().meter("parse.latency", new MeterView(60));
     }
 
     @Override
@@ -96,7 +98,7 @@ public class EnhancedParseFunction extends RichMapFunction<String, PriceEvent> {
             LOG.debug("Successfully parsed: {}", event);
             
             long latency = System.nanoTime() - startTime;
-            if (parseLatencyMeter != null) parseLatencyMeter.inc(latency / 1000000.0); // Convert to milliseconds
+            if (parseLatencyMeter != null) parseLatencyMeter.markEvent((long)(latency / 1000000));
             
             return event;
 

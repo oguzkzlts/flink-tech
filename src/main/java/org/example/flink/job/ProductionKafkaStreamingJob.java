@@ -121,18 +121,9 @@ public class ProductionKafkaStreamingJob {
             LOG.info("Running in development mode without checkpointing");
         }
 
-        // Initialize Prometheus metrics if enabled
+        // Prometheus metrics are configured via flink-conf.yaml
         if (config.isEnableMetrics()) {
-            try {
-                org.apache.flink.metrics.prometheus.PrometheusMetricReporter prometheusReporter = 
-                        new org.apache.flink.metrics.prometheus.PrometheusMetricReporter();
-                org.apache.flink.configuration.Configuration prometheusConfig = new org.apache.flink.configuration.Configuration();
-                prometheusConfig.setString("port", "9249"); // Default Prometheus port
-                prometheusReporter.open(prometheusConfig);
-                LOG.info("Prometheus metrics reporter initialized on port 9249");
-            } catch (Exception e) {
-                LOG.warn("Failed to initialize Prometheus metrics reporter: {}", e.getMessage(), e);
-            }
+            LOG.info("Prometheus metrics reporting configured via flink-conf.yaml");
         }
 
         env.setParallelism(1);

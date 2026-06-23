@@ -136,6 +136,32 @@ services:
         echo "Topics ready at $(date)"
         exit 0
 
+  crypto-producer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crypto-producer
+    depends_on:
+      kafka-topic-creator:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_INPUT_TOPIC: crypto-prices
+      CURRENCIES_RESOURCE: tracked-currencies.json
+    command:
+      - sh
+      - -c
+      - |
+        echo "Starting CryptoPriceProducer..."
+        java -cp /opt/flink/usrlib/FlinkTech-1.0-SNAPSHOT.jar \
+          org.example.flink.ingestion.CryptoPriceProducer
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "ps aux | grep -i '[C]ryptoPriceProducer' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
   flink-job:
     build:
       context: .
